@@ -273,7 +273,7 @@ fn test_update_event_status() {
 
     // Verify the event was updated
     let event_info = client.get_event(&event_id).unwrap();
-    assert_eq!(event_info.is_active, false);
+    assert!(!event_info.is_active);
 }
 
 #[test]
@@ -326,5 +326,5 @@ fn test_complete_event_lifecycle() {
 
     // 6. Verify event info shows updated status
     let event_info = client.get_event(&event_id).unwrap();
-    assert_eq!(event_info.is_active, false);
+    assert!(!event_info.is_active);
 }
