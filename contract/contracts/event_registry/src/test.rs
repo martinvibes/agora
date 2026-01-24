@@ -210,7 +210,7 @@ fn test_register_duplicate_event_fails() {
     client.initialize(&admin, &500);
 
     let event_id = String::from_str(&env, "event_001");
-    
+
     // Register event first time
     client.register_event(&event_id, &organizer, &payment_addr);
 

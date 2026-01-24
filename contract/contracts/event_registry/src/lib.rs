@@ -58,7 +58,7 @@ impl EventRegistry {
         #[allow(deprecated)]
         env.events().publish(
             (symbol_short!("event_reg"), event_id.clone()),
-            (organizer_address, payment_address, platform_fee_percent)
+            (organizer_address, payment_address, platform_fee_percent),
         );
     }
 
@@ -79,7 +79,7 @@ impl EventRegistry {
             Some(mut event_info) => {
                 // Verify organizer signature
                 event_info.organizer_address.require_auth();
-                
+
                 // Update status
                 event_info.is_active = is_active;
                 storage::store_event(&env, event_info);
