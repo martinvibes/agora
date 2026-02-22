@@ -116,6 +116,7 @@ impl TicketPaymentContract {
         // Whitelist USDC by default
         add_token_to_whitelist(&env, &usdc_token);
 
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::ContractInitialized,),
             InitializationEvent {
@@ -140,6 +141,7 @@ impl TicketPaymentContract {
         env.deployer()
             .update_current_contract_wasm(new_wasm_hash.clone());
 
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::ContractUpgraded,),
             ContractUpgraded {
@@ -263,6 +265,7 @@ impl TicketPaymentContract {
             let has_switched: bool = env.storage().persistent().get(&switch_key).unwrap_or(false);
             if !has_switched {
                 env.storage().persistent().set(&switch_key, &true);
+                #[allow(deprecated)]
                 env.events().publish(
                     (AgoraEvent::PriceSwitched,),
                     PriceSwitchedEvent {
@@ -426,6 +429,7 @@ impl TicketPaymentContract {
         }
 
         // Emit confirmation event
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::PaymentStatusChanged,),
             PaymentStatusChangedEvent {
@@ -480,6 +484,7 @@ impl TicketPaymentContract {
         store_payment(&env, payment);
 
         // Emit confirmation event
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::PaymentStatusChanged,),
             PaymentStatusChangedEvent {
@@ -687,6 +692,7 @@ impl TicketPaymentContract {
         add_payment_to_buyer_index(&env, to.clone(), payment_id.clone());
 
         // Emit transfer event
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::TicketTransferred,),
             TicketTransferredEvent {
@@ -777,6 +783,7 @@ impl TicketPaymentContract {
         set_bulk_refund_index(&env, event_id.clone(), end_index);
 
         // Emit bulk refund event
+        #[allow(deprecated)]
         env.events().publish(
             (AgoraEvent::BulkRefundProcessed,),
             BulkRefundProcessedEvent {
