@@ -1734,6 +1734,8 @@ fn test_protocol_revenue_reporting_views() {
     assert_eq!(client.get_active_escrow_total(), 0);
     assert_eq!(client.get_active_escrow_total_by_token(&usdc_id), 0);
 
+    // Fees are cumulative reporting metrics and should not decrease on withdrawal.
+
     assert_eq!(client.get_total_fees_collected(&usdc_id), expected_fee);
 }
 
@@ -2015,4 +2017,475 @@ fn test_process_payment_no_code_unchanged() {
     let expected_fee = (amount * 500) / 10000;
     assert_eq!(escrow.platform_fee, expected_fee);
     assert_eq!(escrow.organizer_amount, amount - expected_fee);
+}
+
+#[soroban_sdk::contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum MockPlatformDataKey {
+    Initialized,
+    Admin,
+    Organizer(Address),
+    Event(String),
+}
+
+#[soroban_sdk::contract]
+pub struct MockPlatformRegistryE2E;
+
+#[soroban_sdk::contractimpl]
+impl MockPlatformRegistryE2E {
+    pub fn initialize(env: Env, admin: Address) {
+        if env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, bool>(&MockPlatformDataKey::Initialized)
+            .unwrap_or(false)
+        {
+            panic!("already initialized");
+        }
+        admin.require_auth();
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Admin, &admin);
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Initialized, &true);
+    }
+
+    pub fn signup_organizer(env: Env, organizer: Address) {
+        organizer.require_auth();
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Organizer(organizer), &true);
+    }
+
+    pub fn create_event(
+        env: Env,
+        event_id: String,
+        organizer: Address,
+        payment_address: Address,
+        max_supply: i128,
+        tiers: soroban_sdk::Map<String, event_registry::TicketTier>,
+    ) {
+        organizer.require_auth();
+        let is_registered = env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, bool>(&MockPlatformDataKey::Organizer(organizer.clone()))
+            .unwrap_or(false);
+        if !is_registered {
+            panic!("organizer not registered");
+        }
+
+        let event = event_registry::EventInfo {
+            event_id: event_id.clone(),
+            organizer_address: organizer,
+            payment_address,
+            platform_fee_percent: 500,
+            is_active: true,
+            created_at: env.ledger().timestamp(),
+            metadata_cid: String::from_str(
+                &env,
+                "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+            ),
+            max_supply,
+            current_supply: 0,
+            milestone_plan: None,
+            tiers,
+        };
+
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Event(event_id), &event);
+    }
+
+    pub fn set_event_active(env: Env, event_id: String, is_active: bool) {
+        let mut event = env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, event_registry::EventInfo>(&MockPlatformDataKey::Event(
+                event_id.clone(),
+            ))
+            .unwrap();
+        event.organizer_address.require_auth();
+        event.is_active = is_active;
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Event(event_id), &event);
+    }
+
+    pub fn get_event_payment_info(env: Env, event_id: String) -> event_registry::PaymentInfo {
+        let event = env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, event_registry::EventInfo>(&MockPlatformDataKey::Event(
+                event_id,
+            ))
+            .unwrap();
+        event_registry::PaymentInfo {
+            payment_address: event.payment_address,
+            platform_fee_percent: event.platform_fee_percent,
+        }
+    }
+
+    pub fn get_event(env: Env, event_id: String) -> Option<event_registry::EventInfo> {
+        env.storage()
+            .persistent()
+            .get(&MockPlatformDataKey::Event(event_id))
+    }
+
+    pub fn increment_inventory(env: Env, event_id: String, tier_id: String, quantity: u32) {
+        let mut event = env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, event_registry::EventInfo>(&MockPlatformDataKey::Event(
+                event_id.clone(),
+            ))
+            .unwrap();
+
+        if !event.is_active {
+            panic!("inactive event");
+        }
+
+        let qty = quantity as i128;
+        let mut tier = event.tiers.get(tier_id.clone()).unwrap();
+        if tier.current_sold + qty > tier.tier_limit {
+            panic!("tier sold out");
+        }
+        if event.max_supply > 0 && event.current_supply + qty > event.max_supply {
+            panic!("event sold out");
+        }
+
+        tier.current_sold += qty;
+        event.current_supply += qty;
+        event.tiers.set(tier_id, tier);
+
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Event(event_id), &event);
+    }
+
+    pub fn decrement_inventory(env: Env, event_id: String, tier_id: String) {
+        let mut event = env
+            .storage()
+            .persistent()
+            .get::<MockPlatformDataKey, event_registry::EventInfo>(&MockPlatformDataKey::Event(
+                event_id.clone(),
+            ))
+            .unwrap();
+        let mut tier = event.tiers.get(tier_id.clone()).unwrap();
+        if tier.current_sold <= 0 || event.current_supply <= 0 {
+            panic!("underflow");
+        }
+        tier.current_sold -= 1;
+        event.current_supply -= 1;
+        event.tiers.set(tier_id, tier);
+        env.storage()
+            .persistent()
+            .set(&MockPlatformDataKey::Event(event_id), &event);
+    }
+}
+
+#[test]
+fn test_integration_full_platform_day() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let event_payment_addr = Address::generate(&env);
+
+    let registry_id = env.register(MockPlatformRegistryE2E, ());
+    let registry = MockPlatformRegistryE2EClient::new(&env, &registry_id);
+    registry.initialize(&admin);
+    registry.signup_organizer(&organizer);
+
+    let mut tiers = soroban_sdk::Map::new(&env);
+    for i in 0..5 {
+        let tier_id = match i {
+            0 => String::from_str(&env, "tier-1"),
+            1 => String::from_str(&env, "tier-2"),
+            2 => String::from_str(&env, "tier-3"),
+            3 => String::from_str(&env, "tier-4"),
+            _ => String::from_str(&env, "tier-5"),
+        };
+        tiers.set(
+            tier_id,
+            event_registry::TicketTier {
+                name: String::from_str(&env, "Tier"),
+                price: 1000_0000000i128 + (i as i128 * 200_0000000),
+                early_bird_price: 1000_0000000i128 + (i as i128 * 200_0000000),
+                early_bird_deadline: 0,
+                tier_limit: 50,
+                current_sold: 0,
+                is_refundable: true,
+            },
+        );
+    }
+
+    let event_id = String::from_str(&env, "full-day-event");
+    registry.create_event(&event_id, &organizer, &event_payment_addr, &500, &tiers);
+
+    let payment_contract_id = env.register(TicketPaymentContract, ());
+    let payment_client = TicketPaymentContractClient::new(&env, &payment_contract_id);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    payment_client.initialize(&admin, &usdc_id, &platform_wallet, &registry_id);
+
+    // Sales across all 5 tiers.
+    let mut first_payment = String::from_str(&env, "pay-0");
+    for i in 0..5 {
+        let tier_id = match i {
+            0 => String::from_str(&env, "tier-1"),
+            1 => String::from_str(&env, "tier-2"),
+            2 => String::from_str(&env, "tier-3"),
+            3 => String::from_str(&env, "tier-4"),
+            _ => String::from_str(&env, "tier-5"),
+        };
+        let payment_id = match i {
+            0 => String::from_str(&env, "pay-0"),
+            1 => String::from_str(&env, "pay-1"),
+            2 => String::from_str(&env, "pay-2"),
+            3 => String::from_str(&env, "pay-3"),
+            _ => String::from_str(&env, "pay-4"),
+        };
+        if i == 0 {
+            first_payment = payment_id.clone();
+        }
+        let buyer = Address::generate(&env);
+        let amount = 1000_0000000i128 + (i as i128 * 200_0000000);
+        token::StellarAssetClient::new(&env, &usdc_id).mint(&buyer, &amount);
+        token::Client::new(&env, &usdc_id).approve(&buyer, &payment_client.address, &amount, &9999);
+
+        payment_client.process_payment(
+            &payment_id,
+            &event_id,
+            &tier_id,
+            &buyer,
+            &usdc_id,
+            &amount,
+            &1,
+            &None,
+            &None,
+        );
+    }
+
+    // Guest refunding (single ticket).
+    payment_client.request_guest_refund(&first_payment);
+
+    // Organizer claiming + admin fee withdrawal.
+    let organizer_claim = payment_client.withdraw_organizer_funds(&event_id, &usdc_id);
+    let admin_fees = payment_client.withdraw_platform_fees(&event_id, &usdc_id);
+
+    assert!(organizer_claim >= 0);
+    assert!(admin_fees >= 0);
+    assert!(payment_client.get_total_volume_processed() > 0);
+}
+
+#[test]
+fn test_integration_edge_cases() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let event_payment_addr = Address::generate(&env);
+
+    let registry_id = env.register(MockPlatformRegistryE2E, ());
+    let registry = MockPlatformRegistryE2EClient::new(&env, &registry_id);
+    registry.initialize(&admin);
+    registry.signup_organizer(&organizer);
+
+    let payment_contract_id = env.register(TicketPaymentContract, ());
+    let payment_client = TicketPaymentContractClient::new(&env, &payment_contract_id);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    payment_client.initialize(&admin, &usdc_id, &platform_wallet, &registry_id);
+
+    // Edge 1: empty event tiers.
+    let empty_event_id = String::from_str(&env, "empty-event");
+    let empty_tiers = soroban_sdk::Map::new(&env);
+    registry.create_event(
+        &empty_event_id,
+        &organizer,
+        &event_payment_addr,
+        &100,
+        &empty_tiers,
+    );
+    let buyer = Address::generate(&env);
+    token::StellarAssetClient::new(&env, &usdc_id).mint(&buyer, &1000_0000000i128);
+    token::Client::new(&env, &usdc_id).approve(
+        &buyer,
+        &payment_client.address,
+        &1000_0000000i128,
+        &9999,
+    );
+    let empty_res = payment_client.try_process_payment(
+        &String::from_str(&env, "empty-pay"),
+        &empty_event_id,
+        &String::from_str(&env, "missing-tier"),
+        &buyer,
+        &usdc_id,
+        &1000_0000000i128,
+        &1,
+        &None,
+        &None,
+    );
+    assert_eq!(empty_res, Err(Ok(TicketPaymentError::TierNotFound)));
+
+    // Edge 2: sold-out tier.
+    let sold_event_id = String::from_str(&env, "soldout-event");
+    let mut sold_tiers = soroban_sdk::Map::new(&env);
+    sold_tiers.set(
+        String::from_str(&env, "solo"),
+        event_registry::TicketTier {
+            name: String::from_str(&env, "Solo"),
+            price: 1000_0000000i128,
+            early_bird_price: 1000_0000000i128,
+            early_bird_deadline: 0,
+            tier_limit: 1,
+            current_sold: 0,
+            is_refundable: true,
+        },
+    );
+    registry.create_event(
+        &sold_event_id,
+        &organizer,
+        &event_payment_addr,
+        &1,
+        &sold_tiers,
+    );
+    let buyer1 = Address::generate(&env);
+    token::StellarAssetClient::new(&env, &usdc_id).mint(&buyer1, &1000_0000000i128);
+    token::Client::new(&env, &usdc_id).approve(
+        &buyer1,
+        &payment_client.address,
+        &1000_0000000i128,
+        &9999,
+    );
+    payment_client.process_payment(
+        &String::from_str(&env, "sold-1"),
+        &sold_event_id,
+        &String::from_str(&env, "solo"),
+        &buyer1,
+        &usdc_id,
+        &1000_0000000i128,
+        &1,
+        &None,
+        &None,
+    );
+
+    let buyer2 = Address::generate(&env);
+    token::StellarAssetClient::new(&env, &usdc_id).mint(&buyer2, &1000_0000000i128);
+    token::Client::new(&env, &usdc_id).approve(
+        &buyer2,
+        &payment_client.address,
+        &1000_0000000i128,
+        &9999,
+    );
+    let sold_res = payment_client.try_process_payment(
+        &String::from_str(&env, "sold-2"),
+        &sold_event_id,
+        &String::from_str(&env, "solo"),
+        &buyer2,
+        &usdc_id,
+        &1000_0000000i128,
+        &1,
+        &None,
+        &None,
+    );
+    assert!(sold_res.is_err());
+
+    // Edge 3: failed token transfer due to missing approval.
+    let no_approval_buyer = Address::generate(&env);
+    token::StellarAssetClient::new(&env, &usdc_id).mint(&no_approval_buyer, &1000_0000000i128);
+    let transfer_res = payment_client.try_process_payment(
+        &String::from_str(&env, "no-approval"),
+        &sold_event_id,
+        &String::from_str(&env, "solo"),
+        &no_approval_buyer,
+        &usdc_id,
+        &1000_0000000i128,
+        &1,
+        &None,
+        &None,
+    );
+    assert!(transfer_res.is_err());
+}
+
+#[test]
+fn test_integration_concurrent_multi_guest_sales_no_state_corruption() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    let admin = Address::generate(&env);
+    let organizer = Address::generate(&env);
+    let platform_wallet = Address::generate(&env);
+    let event_payment_addr = Address::generate(&env);
+
+    let registry_id = env.register(MockPlatformRegistryE2E, ());
+    let registry = MockPlatformRegistryE2EClient::new(&env, &registry_id);
+    registry.initialize(&admin);
+    registry.signup_organizer(&organizer);
+
+    let payment_contract_id = env.register(TicketPaymentContract, ());
+    let payment_client = TicketPaymentContractClient::new(&env, &payment_contract_id);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    payment_client.initialize(&admin, &usdc_id, &platform_wallet, &registry_id);
+
+    let event_id = String::from_str(&env, "concurrent-event");
+    let tier_id = String::from_str(&env, "hot-tier");
+    let mut tiers = soroban_sdk::Map::new(&env);
+    tiers.set(
+        tier_id.clone(),
+        event_registry::TicketTier {
+            name: String::from_str(&env, "Hot Tier"),
+            price: 1000_0000000i128,
+            early_bird_price: 1000_0000000i128,
+            early_bird_deadline: 0,
+            tier_limit: 10,
+            current_sold: 0,
+            is_refundable: true,
+        },
+    );
+    registry.create_event(&event_id, &organizer, &event_payment_addr, &10, &tiers);
+
+    let mut success_count = 0u32;
+    let mut fail_count = 0u32;
+
+    // Simulate concurrent demand with rapid sequential purchases from many guests.
+    for i in 0..20 {
+        let buyer = Address::generate(&env);
+        let amount = 1000_0000000i128;
+        token::StellarAssetClient::new(&env, &usdc_id).mint(&buyer, &amount);
+        token::Client::new(&env, &usdc_id).approve(&buyer, &payment_client.address, &amount, &9999);
+
+        let pid = if i < 10 {
+            String::from_str(&env, "cg-a")
+        } else {
+            String::from_str(&env, "cg-b")
+        };
+        let res = payment_client.try_process_payment(
+            &pid, &event_id, &tier_id, &buyer, &usdc_id, &amount, &1, &None, &None,
+        );
+
+        if res.is_ok() {
+            success_count += 1;
+        } else {
+            fail_count += 1;
+        }
+    }
+
+    let final_event = registry.get_event(&event_id).unwrap();
+    let final_tier = final_event.tiers.get(tier_id).unwrap();
+
+    assert_eq!(success_count, 10);
+    assert_eq!(fail_count, 10);
+    assert_eq!(final_event.current_supply, 10);
+    assert_eq!(final_tier.current_sold, 10);
 }
