@@ -2,8 +2,9 @@
 
 use crate::events::{
     AgoraEvent, EventRegisteredEvent, EventStatusUpdatedEvent, EventsSuspendedEvent,
-    FeeUpdatedEvent, InitializationEvent, InventoryIncrementedEvent, MetadataUpdatedEvent,
-    OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent, RegistryUpgradedEvent,
+    FeeUpdatedEvent, GlobalPromoUpdatedEvent, InitializationEvent, InventoryIncrementedEvent,
+    MetadataUpdatedEvent, OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent,
+    RegistryUpgradedEvent,
 };
 use crate::types::{BlacklistAuditEntry, EventInfo, EventRegistrationArgs, PaymentInfo};
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
@@ -105,6 +106,13 @@ impl EventRegistry {
             }
         }
 
+        // Validate resale cap if provided
+        if let Some(cap) = args.resale_cap_bps {
+            if cap > 10000 {
+                return Err(EventRegistryError::InvalidResaleCapBps);
+            }
+        }
+
         let platform_fee_percent = storage::get_platform_fee(&env);
 
         let event_info = EventInfo {
@@ -121,6 +129,7 @@ impl EventRegistry {
             tiers: args.tiers.clone(),
             refund_deadline: args.refund_deadline,
             restocking_fee: args.restocking_fee,
+            resale_cap_bps: args.resale_cap_bps,
         };
 
         storage::store_event(&env, event_info);
@@ -588,6 +597,50 @@ impl EventRegistry {
     /// Retrieves the blacklist audit log.
     pub fn get_blacklist_audit_log(env: Env) -> Vec<BlacklistAuditEntry> {
         storage::get_blacklist_audit_log(&env)
+    }
+
+    /// Sets a platform-wide promotional discount. Only callable by the administrator.
+    /// The promo automatically expires when the ledger timestamp passes `promo_expiry`.
+    ///
+    /// # Arguments
+    /// * `global_promo_bps` - Discount rate in basis points (e.g., 1500 = 15% off). 0 clears the promo.
+    /// * `promo_expiry` - Unix timestamp after which the promo is no longer applied.
+    pub fn set_global_promo(
+        env: Env,
+        global_promo_bps: u32,
+        promo_expiry: u64,
+    ) -> Result<(), EventRegistryError> {
+        let admin = storage::get_admin(&env).ok_or(EventRegistryError::NotInitialized)?;
+        admin.require_auth();
+
+        if global_promo_bps > 10000 {
+            return Err(EventRegistryError::InvalidPromoBps);
+        }
+
+        storage::set_global_promo_bps(&env, global_promo_bps);
+        storage::set_promo_expiry(&env, promo_expiry);
+
+        env.events().publish(
+            (AgoraEvent::GlobalPromoUpdated,),
+            GlobalPromoUpdatedEvent {
+                global_promo_bps,
+                promo_expiry,
+                admin_address: admin,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Returns the current global promotional discount rate in basis points.
+    pub fn get_global_promo_bps(env: Env) -> u32 {
+        storage::get_global_promo_bps(&env)
+    }
+
+    /// Returns the expiry timestamp for the current global promo.
+    pub fn get_promo_expiry(env: Env) -> u64 {
+        storage::get_promo_expiry(&env)
     }
 }
 
