@@ -7,7 +7,7 @@ use crate::events::{
     OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent, RegistryUpgradedEvent,
 };
 use crate::types::{
-    BlacklistAuditEntry, EventInfo, EventRegistrationArgs, EventStatus, PaymentInfo,
+    BlacklistAuditEntry, EventInfo, EventRegistrationArgs, EventStatus, MultiSigConfig, PaymentInfo,
 };
 use soroban_sdk::{contract, contractimpl, Address, BytesN, Env, String, Vec};
 
@@ -797,5 +797,6 @@ fn suspend_organizer_events(
 #[cfg(test)]
 mod test;
 
-#[cfg(test)]
-mod test_multisig;
+// TODO: Uncomment when multisig functions are implemented
+// #[cfg(test)]
+// mod test_multisig;

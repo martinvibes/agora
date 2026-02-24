@@ -1,4 +1,4 @@
-use crate::types::{BlacklistAuditEntry, DataKey, EventInfo};
+use crate::types::{BlacklistAuditEntry, DataKey, EventInfo, MultiSigConfig, Proposal};
 use soroban_sdk::{vec, Address, Env, String, Vec};
 
 const SHARD_SIZE: u32 = 50;
