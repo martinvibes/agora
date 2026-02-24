@@ -366,13 +366,22 @@ impl TicketPaymentContract {
         }
 
         // 2. Calculate platform fee (platform_fee_percent is in bps, 10000 = 100%)
-        let mut total_platform_fee =
-            (effective_total * event_info.platform_fee_percent as i128) / 10000;
-        let total_organizer_amount = effective_total - total_platform_fee;
+        let mut total_platform_fee = effective_total
+            .checked_mul(event_info.platform_fee_percent as i128)
+            .and_then(|v| v.checked_div(10000))
+            .ok_or(TicketPaymentError::ArithmeticError)?;
+        let total_organizer_amount = effective_total
+            .checked_sub(total_platform_fee)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
 
         let referral_reward = if referrer.is_some() {
-            let reward = (total_platform_fee * 20) / 100; // 20%
-            total_platform_fee -= reward;
+            let reward = total_platform_fee
+                .checked_mul(20)
+                .and_then(|v| v.checked_div(100))
+                .ok_or(TicketPaymentError::ArithmeticError)?; // 20%
+            total_platform_fee = total_platform_fee
+                .checked_sub(reward)
+                .ok_or(TicketPaymentError::ArithmeticError)?;
             reward
         } else {
             0
@@ -401,7 +410,11 @@ impl TicketPaymentContract {
 
         // Verify balance after transfer
         let balance_after = token_client.balance(&contract_address);
-        if balance_after - balance_before != effective_total {
+        if balance_after
+            .checked_sub(balance_before)
+            .ok_or(TicketPaymentError::ArithmeticError)?
+            != effective_total
+        {
             return Err(TicketPaymentError::TransferVerificationFailed);
         }
 
@@ -433,8 +446,13 @@ impl TicketPaymentContract {
         registry_client.increment_inventory(&event_id, &ticket_tier_id, &quantity);
 
         // 7. Create payment records for each individual ticket
-        let platform_fee_per_ticket = total_platform_fee / quantity as i128;
-        let organizer_amount_per_ticket = total_organizer_amount / quantity as i128;
+        let quantity_i128 = quantity as i128;
+        let platform_fee_per_ticket = total_platform_fee
+            .checked_div(quantity_i128)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
+        let organizer_amount_per_ticket = total_organizer_amount
+            .checked_div(quantity_i128)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
         let created_at = env.ledger().timestamp();
         let empty_tx_hash = String::from_str(&env, "");
 
@@ -486,7 +504,7 @@ impl TicketPaymentContract {
 
         // 9. Emit discount applied event if a code was used
         if let Some(hash) = discount_code_hash {
-            let discount_amount = total_amount - effective_total;
+            let discount_amount = total_amount.checked_sub(effective_total).unwrap_or(0);
             env.events().publish(
                 (AgoraEvent::DiscountCodeApplied,),
                 DiscountCodeAppliedEvent {
@@ -501,7 +519,7 @@ impl TicketPaymentContract {
 
         // 10. Emit global promo applied event if promo was active
         if promo_applied_bps > 0 {
-            let promo_discount_amount = total_amount - after_promo;
+            let promo_discount_amount = total_amount.checked_sub(after_promo).unwrap_or(0);
             env.events().publish(
                 (AgoraEvent::GlobalPromoApplied,),
                 GlobalPromoAppliedEvent {
@@ -522,6 +540,8 @@ impl TicketPaymentContract {
         if !is_initialized(&env) {
             panic!("Contract not initialized");
         }
+        let admin = get_admin(&env).expect("Admin not set");
+        admin.require_auth();
         // In a real scenario, this would be restricted to a specific backend/admin address.
         if let Some(mut payment) = get_payment(&env, payment_id.clone()) {
             payment.status = PaymentStatus::Confirmed;
@@ -642,7 +662,10 @@ impl TicketPaymentContract {
             0
         };
 
-        let refund_amount = payment.amount - effective_restocking_fee;
+        let refund_amount = payment
+            .amount
+            .checked_sub(effective_restocking_fee)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
 
         // Return ticket to inventory (increments available inventory)
         registry_client.decrement_inventory(&payment.event_id, &payment.ticket_tier_id);
@@ -666,7 +689,10 @@ impl TicketPaymentContract {
         // Guest receives payment.amount - effective_restocking_fee
         // Organizer keeps effective_restocking_fee (adjust from original organizer_amount)
         // Platform fee is refunded (removed from escrow)
-        let org_adjustment = payment.organizer_amount - effective_restocking_fee;
+        let org_adjustment = payment
+            .organizer_amount
+            .checked_sub(effective_restocking_fee)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
         let platform_adjustment = payment.platform_fee;
 
         crate::storage::update_event_balance(
@@ -734,7 +760,6 @@ impl TicketPaymentContract {
         event_info.organizer_address.require_auth();
 
         let balance = get_event_balance(&env, event_id.clone());
-
         // Block all claim_revenue attempts for an event while a dispute is active.
         if is_event_disputed(&env, event_id.clone()) {
             return Err(TicketPaymentError::EventDisputed);
@@ -745,7 +770,10 @@ impl TicketPaymentContract {
             return Err(TicketPaymentError::EventCancelled);
         }
 
-        let total_revenue = balance.organizer_amount + balance.total_withdrawn;
+        let total_revenue = balance
+            .organizer_amount
+            .checked_add(balance.total_withdrawn)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
         if total_revenue == 0 {
             return Ok(0);
         }
@@ -765,8 +793,13 @@ impl TicketPaymentContract {
             }
         }
 
-        let max_allowed = (total_revenue * release_percent as i128) / 10000;
-        let mut available_to_withdraw = max_allowed - balance.total_withdrawn;
+        let max_allowed = total_revenue
+            .checked_mul(release_percent as i128)
+            .and_then(|v| v.checked_div(10000))
+            .ok_or(TicketPaymentError::ArithmeticError)?;
+        let mut available_to_withdraw = max_allowed
+            .checked_sub(balance.total_withdrawn)
+            .ok_or(TicketPaymentError::ArithmeticError)?;
 
         if available_to_withdraw <= 0 {
             return Ok(0);
@@ -786,8 +819,14 @@ impl TicketPaymentContract {
             &env,
             event_id,
             crate::types::EventBalance {
-                organizer_amount: balance.organizer_amount - available_to_withdraw,
-                total_withdrawn: balance.total_withdrawn + available_to_withdraw,
+                organizer_amount: balance
+                    .organizer_amount
+                    .checked_sub(available_to_withdraw)
+                    .ok_or(TicketPaymentError::ArithmeticError)?,
+                total_withdrawn: balance
+                    .total_withdrawn
+                    .checked_add(available_to_withdraw)
+                    .ok_or(TicketPaymentError::ArithmeticError)?,
                 platform_fee: balance.platform_fee,
             },
         );
@@ -865,7 +904,11 @@ impl TicketPaymentContract {
             let current_day = env.ledger().timestamp() / 86400;
             let already_withdrawn =
                 get_daily_withdrawn_amount(&env, token_address.clone(), current_day);
-            if already_withdrawn + amount > cap {
+            if already_withdrawn
+                .checked_add(amount)
+                .ok_or(TicketPaymentError::ArithmeticError)?
+                > cap
+            {
                 return Err(TicketPaymentError::WithdrawalCapExceeded);
             }
             add_to_daily_withdrawn_amount(&env, token_address.clone(), current_day, amount);
