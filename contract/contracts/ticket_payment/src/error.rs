@@ -35,10 +35,11 @@ pub enum TicketPaymentError {
     EventDisputed = 36,
     UnauthorizedScanner = 37,
     TicketAlreadyUsed = 38,
-    OracleNotConfigured = 39,
-    OraclePriceUnavailable = 40,
-    PriceOutsideSlippage = 41,
-    InvalidSlippageBps = 42,
+    GoalNotMet = 39,
+    OracleNotConfigured = 40,
+    OraclePriceUnavailable = 41,
+    PriceOutsideSlippage = 42,
+    InvalidSlippageBps = 43,
 }
 
 impl core::fmt::Display for TicketPaymentError {
@@ -111,6 +112,9 @@ impl core::fmt::Display for TicketPaymentError {
             }
             TicketPaymentError::TicketAlreadyUsed => {
                 write!(f, "Ticket has already been checked in/used")
+            }
+            TicketPaymentError::GoalNotMet => {
+                write!(f, "Minimum sales target not reached by the deadline")
             }
             TicketPaymentError::OracleNotConfigured => {
                 write!(f, "Oracle contract address not configured")
