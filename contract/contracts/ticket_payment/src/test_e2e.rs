@@ -68,6 +68,7 @@ impl MockRegistryE2E {
                         price: 1000_0000000i128,
                         early_bird_price: 1000_0000000i128,
                         early_bird_deadline: 0,
+                        usd_price: 0,
                         tier_limit: 1000,
                         current_sold: 0,
                         is_refundable: true,
@@ -171,6 +172,7 @@ impl MockRegistryCancelledE2E {
                         price: 1000_0000000i128,
                         early_bird_price: 1000_0000000i128,
                         early_bird_deadline: 0,
+                        usd_price: 0,
                         tier_limit: 100,
                         current_sold: 0,
                         is_refundable: false, // not normally refundable, but cancelled overrides

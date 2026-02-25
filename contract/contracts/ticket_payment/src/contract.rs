@@ -3,17 +3,17 @@ use crate::storage::{
     add_to_active_escrow_total, add_to_daily_withdrawn_amount,
     add_to_total_fees_collected_by_token, add_to_total_volume_processed, add_token_to_whitelist,
     get_admin, get_bulk_refund_index, get_daily_withdrawn_amount, get_event_balance,
-    get_event_payments, get_event_registry, get_partial_refund_index,
-    get_partial_refund_percentage, get_payment, get_platform_wallet,
+    get_event_payments, get_event_registry, get_oracle_address, get_partial_refund_index,
+    get_partial_refund_percentage, get_payment, get_platform_wallet, get_slippage_bps,
     get_total_fees_collected_by_token, get_transfer_fee, get_withdrawal_cap, has_price_switched,
     is_discount_hash_used, is_discount_hash_valid, is_event_disputed, is_initialized, is_paused,
     is_token_whitelisted, mark_discount_hash_used, remove_payment_from_buyer_index,
     remove_token_from_whitelist, set_admin, set_bulk_refund_index, set_event_dispute_status,
-    set_event_registry, set_initialized, set_is_paused, set_partial_refund_index,
-    set_partial_refund_percentage, set_platform_wallet, set_price_switched, set_transfer_fee,
-    set_usdc_token, set_withdrawal_cap, store_payment, subtract_from_active_escrow_by_token,
-    subtract_from_active_escrow_total, subtract_from_total_fees_collected_by_token,
-    update_event_balance,
+    set_event_registry, set_initialized, set_is_paused, set_oracle_address,
+    set_partial_refund_index, set_partial_refund_percentage, set_platform_wallet,
+    set_price_switched, set_slippage_bps, set_transfer_fee, set_usdc_token, set_withdrawal_cap,
+    store_payment, subtract_from_active_escrow_by_token, subtract_from_active_escrow_total,
+    subtract_from_total_fees_collected_by_token, update_event_balance,
 };
 use crate::types::{Payment, PaymentStatus};
 use crate::{
@@ -27,6 +27,23 @@ use crate::{
     },
 };
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, String, Vec};
+
+// Price Oracle interface
+pub mod price_oracle {
+    use soroban_sdk::{contractclient, Address, Env};
+
+    #[soroban_sdk::contracttype]
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    pub struct PriceData {
+        pub price: i128,
+        pub timestamp: u64,
+    }
+
+    #[contractclient(name = "OracleClient")]
+    pub trait PriceOracleInterface {
+        fn lastprice(env: Env, asset: Address) -> Option<PriceData>;
+    }
+}
 
 // Event Registry interface
 pub mod event_registry {
@@ -72,6 +89,7 @@ pub mod event_registry {
         pub price: i128,
         pub early_bird_price: i128,
         pub early_bird_deadline: u64,
+        pub usd_price: i128,
         pub tier_limit: i128,
         pub current_sold: i128,
         pub is_refundable: bool,
@@ -239,6 +257,44 @@ impl TicketPaymentContract {
         is_token_whitelisted(&env, &token)
     }
 
+    /// Sets the oracle contract address. Only callable by admin.
+    pub fn set_oracle(env: Env, oracle_address: Address) -> Result<(), TicketPaymentError> {
+        let admin = get_admin(&env).ok_or(TicketPaymentError::NotInitialized)?;
+        admin.require_auth();
+        set_oracle_address(&env, &oracle_address);
+        Ok(())
+    }
+
+    /// Sets the slippage tolerance in basis points. Only callable by admin.
+    /// Maximum allowed value is 5000 (50%).
+    pub fn set_slippage_bps(env: Env, bps: u32) -> Result<(), TicketPaymentError> {
+        let admin = get_admin(&env).ok_or(TicketPaymentError::NotInitialized)?;
+        admin.require_auth();
+        if bps > 5000 {
+            return Err(TicketPaymentError::InvalidSlippageBps);
+        }
+        set_slippage_bps(&env, bps);
+        Ok(())
+    }
+
+    /// Returns the current oracle price for an asset.
+    pub fn get_asset_price(
+        env: Env,
+        asset: Address,
+    ) -> Result<price_oracle::PriceData, TicketPaymentError> {
+        let oracle_addr =
+            get_oracle_address(&env).ok_or(TicketPaymentError::OracleNotConfigured)?;
+        let oracle_client = price_oracle::OracleClient::new(&env, &oracle_addr);
+        oracle_client
+            .lastprice(&asset)
+            .ok_or(TicketPaymentError::OraclePriceUnavailable)
+    }
+
+    /// Returns the current slippage tolerance in basis points.
+    pub fn get_slippage(env: Env) -> u32 {
+        get_slippage_bps(&env)
+    }
+
     /// Processes a payment for an event ticket.
     #[allow(clippy::too_many_arguments)]
     pub fn process_payment(
@@ -341,14 +397,47 @@ impl TicketPaymentContract {
             .ok_or(TicketPaymentError::TierNotFound)?;
 
         let current_time = env.ledger().timestamp();
-        let mut active_price = tier.price;
 
-        if tier.early_bird_deadline > 0 && current_time <= tier.early_bird_deadline {
-            active_price = tier.early_bird_price;
-        }
+        if tier.usd_price > 0 {
+            // ── Oracle-based USD pricing ──────────────────────────────────
+            let oracle_addr =
+                get_oracle_address(&env).ok_or(TicketPaymentError::OracleNotConfigured)?;
+            let oracle_client = price_oracle::OracleClient::new(&env, &oracle_addr);
+            let price_data = oracle_client
+                .lastprice(&token_address)
+                .ok_or(TicketPaymentError::OraclePriceUnavailable)?;
 
-        if amount != active_price {
-            return Err(TicketPaymentError::InvalidPrice);
+            // expected = usd_price * oracle_price / 1_0000000
+            let expected = tier
+                .usd_price
+                .checked_mul(price_data.price)
+                .and_then(|v| v.checked_div(1_0000000))
+                .ok_or(TicketPaymentError::ArithmeticError)?;
+
+            let bps = get_slippage_bps(&env) as i128;
+            let min_amount = expected
+                .checked_mul(10000 - bps)
+                .and_then(|v| v.checked_div(10000))
+                .ok_or(TicketPaymentError::ArithmeticError)?;
+            let max_amount = expected
+                .checked_mul(10000 + bps)
+                .and_then(|v| v.checked_div(10000))
+                .ok_or(TicketPaymentError::ArithmeticError)?;
+
+            if amount < min_amount || amount > max_amount {
+                return Err(TicketPaymentError::PriceOutsideSlippage);
+            }
+        } else {
+            // ── Exact token-price matching (existing behaviour) ───────────
+            let mut active_price = tier.price;
+
+            if tier.early_bird_deadline > 0 && current_time <= tier.early_bird_deadline {
+                active_price = tier.early_bird_price;
+            }
+
+            if amount != active_price {
+                return Err(TicketPaymentError::InvalidPrice);
+            }
         }
 
         // Check if we just transitioned from early bird to standard
