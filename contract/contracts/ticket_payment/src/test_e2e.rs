@@ -2,10 +2,7 @@ use super::contract::{event_registry, TicketPaymentContract, TicketPaymentContra
 use super::storage::*;
 use super::types::PaymentStatus;
 use crate::error::TicketPaymentError;
-use soroban_sdk::{
-    testutils::Address as _,
-    token, Address, Env, String, Symbol,
-};
+use soroban_sdk::{testutils::Address as _, token, Address, Env, String, Symbol};
 
 // =============================================================================
 // Mock Registries for E2E tests
@@ -111,7 +108,7 @@ impl MockRegistryE2E {
     pub fn is_scanner_authorized(env: Env, _event_id: String, scanner: Address) -> bool {
         let scanner_key = Symbol::new(&env, "scanner");
         let stored: Option<Address> = env.storage().instance().get(&scanner_key);
-        stored.map_or(false, |s| s == scanner)
+        stored.is_some_and(|s| s == scanner)
     }
 
     // --- Admin helpers called from test via env.as_contract ---
@@ -158,7 +155,10 @@ impl MockRegistryCancelledE2E {
             is_active: false,
             status: event_registry::EventStatus::Cancelled,
             created_at: 0,
-            metadata_cid: String::from_str(&env, "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi"),
+            metadata_cid: String::from_str(
+                &env,
+                "bafybeigdyrzt5sfp7udm7hu76uh7y26nf3efuylqabf3oclgtqy55fbzdi",
+            ),
             max_supply: 100,
             current_supply: 0,
             milestone_plan: None,
@@ -453,7 +453,9 @@ fn test_e2e_duplicate_payment_id_rejected() {
     fund_buyer(&env, &usdc_id, &buyer, &client.address, amount * 2);
 
     // First payment succeeds
-    buy_ticket(&client, &env, "pay_dup", "event_1", &buyer, &usdc_id, amount);
+    buy_ticket(
+        &client, &env, "pay_dup", "event_1", &buyer, &usdc_id, amount,
+    );
 
     // Second payment with the same id — the store_payment call will overwrite
     // the existing record (since payment_id is unique key). The contract doesn't
@@ -524,7 +526,10 @@ fn test_e2e_state_consistent_after_failed_payment() {
 
     // Verify state unchanged
     let escrow_after = client.get_event_escrow_balance(&String::from_str(&env, "event_1"));
-    assert_eq!(escrow_after.organizer_amount, escrow_before.organizer_amount);
+    assert_eq!(
+        escrow_after.organizer_amount,
+        escrow_before.organizer_amount
+    );
     assert_eq!(escrow_after.platform_fee, escrow_before.platform_fee);
 
     let balance_after = token::Client::new(&env, &usdc_id).balance(&buyer);
@@ -634,10 +639,7 @@ fn test_e2e_organizer_withdrawal_after_sales() {
     assert_eq!(escrow.organizer_amount, total_amount - expected_fee);
 
     // Withdraw organizer funds
-    let withdrawn = client.withdraw_organizer_funds(
-        &String::from_str(&env, "event_1"),
-        &usdc_id,
-    );
+    let withdrawn = client.withdraw_organizer_funds(&String::from_str(&env, "event_1"), &usdc_id);
     assert_eq!(withdrawn, total_amount - expected_fee);
 
     // Verify organizer received the funds
@@ -734,7 +736,9 @@ fn test_e2e_ticket_transfer_lifecycle() {
 
     // Buy and confirm
     let pay_id_str = "pay_t1";
-    let pay_id = buy_ticket(&client, &env, pay_id_str, "event_1", &buyer, &usdc_id, amount);
+    let pay_id = buy_ticket(
+        &client, &env, pay_id_str, "event_1", &buyer, &usdc_id, amount,
+    );
     client.confirm_payment(&pay_id, &String::from_str(&env, "tx_t1"));
 
     let payment = client.get_payment_status(&pay_id).unwrap();

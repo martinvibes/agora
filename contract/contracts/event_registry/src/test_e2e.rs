@@ -241,22 +241,15 @@ fn test_e2e_blacklist_suspends_and_blocks() {
     // Register an event
     let args = make_event_args(&env, "evt_bl", &organizer, 100, single_tier(&env, 100));
     client.register_event(&args);
-    let info = client
-        .get_event(&String::from_str(&env, "evt_bl"))
-        .unwrap();
+    let info = client.get_event(&String::from_str(&env, "evt_bl")).unwrap();
     assert!(info.is_active);
 
     // Blacklist organizer
-    client.blacklist_organizer(
-        &organizer,
-        &String::from_str(&env, "Fraud detected"),
-    );
+    client.blacklist_organizer(&organizer, &String::from_str(&env, "Fraud detected"));
     assert!(client.is_organizer_blacklisted(&organizer));
 
     // Event should be suspended (is_active = false)
-    let info = client
-        .get_event(&String::from_str(&env, "evt_bl"))
-        .unwrap();
+    let info = client.get_event(&String::from_str(&env, "evt_bl")).unwrap();
     assert!(!info.is_active);
 
     // Try to register a new event — should fail
@@ -265,10 +258,7 @@ fn test_e2e_blacklist_suspends_and_blocks() {
     assert_eq!(result, Err(Ok(EventRegistryError::OrganizerBlacklisted)));
 
     // Remove from blacklist
-    client.remove_from_blacklist(
-        &organizer,
-        &String::from_str(&env, "Cleared after review"),
-    );
+    client.remove_from_blacklist(&organizer, &String::from_str(&env, "Cleared after review"));
     assert!(!client.is_organizer_blacklisted(&organizer));
 
     // Now registering a new event should succeed
