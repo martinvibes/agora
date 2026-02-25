@@ -830,6 +830,9 @@ fn suspend_organizer_events(
 #[cfg(test)]
 mod test;
 
+#[cfg(test)]
+mod test_e2e;
+
 // TODO: Uncomment when multisig functions are implemented
 // #[cfg(test)]
 // mod test_multisig;
