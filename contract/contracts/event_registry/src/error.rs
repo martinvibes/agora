@@ -28,6 +28,22 @@ pub enum EventRegistryError {
     EventCancelled = 22,
     EventAlreadyCancelled = 23,
     InvalidGracePeriodEnd = 24,
+    EventIsActive = 25,
+    // ── Loyalty & Staking errors ───────────────────────────────────────
+    /// Organizer already has an active stake
+    AlreadyStaked = 26,
+    /// Organizer does not have an active stake
+    NotStaked = 27,
+    /// Stake amount is below the minimum required for Verified status
+    InsufficientStakeAmount = 28,
+    /// Stake amount must be greater than zero
+    InvalidStakeAmount = 29,
+    /// Staking has not been configured by the admin
+    StakingNotConfigured = 30,
+    /// No rewards available to claim
+    NoRewardsAvailable = 31,
+    /// Reward distribution total must be positive
+    InvalidRewardAmount = 32,
 }
 
 impl core::fmt::Display for EventRegistryError {
@@ -90,6 +106,33 @@ impl core::fmt::Display for EventRegistryError {
             }
             EventRegistryError::InvalidGracePeriodEnd => {
                 write!(f, "Grace period end timestamp must be in the future")
+            }
+            EventRegistryError::EventIsActive => {
+                write!(f, "Cannot perform action on an active event")
+            }
+            EventRegistryError::AlreadyStaked => {
+                write!(f, "Organizer already has an active stake")
+            }
+            EventRegistryError::NotStaked => {
+                write!(f, "Organizer does not have an active stake")
+            }
+            EventRegistryError::InsufficientStakeAmount => {
+                write!(
+                    f,
+                    "Stake amount is below the minimum required for Verified status"
+                )
+            }
+            EventRegistryError::InvalidStakeAmount => {
+                write!(f, "Stake amount must be greater than zero")
+            }
+            EventRegistryError::StakingNotConfigured => {
+                write!(f, "Staking has not been configured by the admin")
+            }
+            EventRegistryError::NoRewardsAvailable => {
+                write!(f, "No rewards available to claim")
+            }
+            EventRegistryError::InvalidRewardAmount => {
+                write!(f, "Reward distribution total must be positive")
             }
         }
     }
