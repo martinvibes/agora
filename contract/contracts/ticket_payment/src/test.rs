@@ -1848,59 +1848,53 @@ fn test_bulk_refund_success() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, usdc_id, _, _) = setup_test(&env);
-    let usdc_token = token::StellarAssetClient::new(&env, &usdc_id);
+    let contract_id = env.register(TicketPaymentContract, ());
+    let client = TicketPaymentContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let platform_wallet = Address::generate(&env);
+    let registry_id = env.register(MockCancelledRegistry, ());
+    client.initialize(&admin, &usdc_id, &platform_wallet, &registry_id);
 
+    let usdc_token = token::StellarAssetClient::new(&env, &usdc_id);
     let buyer1 = Address::generate(&env);
     let buyer2 = Address::generate(&env);
     let event_id = String::from_str(&env, "event_1");
-    let tier_id = String::from_str(&env, "tier_1");
-    let ticket_price = 1000_0000000i128; // matches MockEventRegistry tier price
+    let ticket_price = 1000_0000000i128;
 
-    // Process two payments
-    usdc_token.mint(&buyer1, &ticket_price);
-    token::Client::new(&env, &usdc_id).approve(&buyer1, &client.address, &ticket_price, &9999);
-    client.process_payment(
-        &String::from_str(&env, "p1"),
-        &event_id,
-        &tier_id,
-        &buyer1,
-        &usdc_id,
-        &ticket_price,
-        &1,
-        &None,
-        &None,
-    );
+    // Manually store confirmed payments and fund the contract
+    env.as_contract(&client.address, || {
+        for (pid, buyer) in [
+            (String::from_str(&env, "p1"), buyer1.clone()),
+            (String::from_str(&env, "p2"), buyer2.clone()),
+        ] {
+            store_payment(
+                &env,
+                Payment {
+                    payment_id: pid.clone(),
+                    event_id: event_id.clone(),
+                    buyer_address: buyer,
+                    ticket_tier_id: String::from_str(&env, "tier_1"),
+                    amount: ticket_price,
+                    platform_fee: 50_0000000,
+                    organizer_amount: 950_0000000,
+                    status: PaymentStatus::Confirmed,
+                    transaction_hash: String::from_str(&env, "tx"),
+                    created_at: 0,
+                    confirmed_at: Some(1),
+                    refunded_amount: 0,
+                },
+            );
+            update_event_balance(&env, event_id.clone(), 950_0000000, 50_0000000);
+        }
+    });
+    usdc_token.mint(&client.address, &(ticket_price * 2));
 
-    usdc_token.mint(&buyer2, &ticket_price);
-    token::Client::new(&env, &usdc_id).approve(&buyer2, &client.address, &ticket_price, &9999);
-    client.process_payment(
-        &String::from_str(&env, "p2"),
-        &event_id,
-        &tier_id,
-        &buyer2,
-        &usdc_id,
-        &ticket_price,
-        &1,
-        &None,
-        &None,
-    );
-
-    // Confirm them
-    client.confirm_payment(&String::from_str(&env, "p1"), &String::from_str(&env, "h1"));
-    client.confirm_payment(&String::from_str(&env, "p2"), &String::from_str(&env, "h2"));
-
-    // Initial balances
-    let initial_buyer1 = token::Client::new(&env, &usdc_id).balance(&buyer1);
-    let initial_buyer2 = token::Client::new(&env, &usdc_id).balance(&buyer2);
-    assert_eq!(initial_buyer1, 0);
-    assert_eq!(initial_buyer2, 0);
-
-    // Trigger bulk refund
     let count = client.trigger_bulk_refund(&event_id, &10);
     assert_eq!(count, 2);
 
-    // Check final balances
     assert_eq!(
         token::Client::new(&env, &usdc_id).balance(&buyer1),
         ticket_price
@@ -1909,8 +1903,6 @@ fn test_bulk_refund_success() {
         token::Client::new(&env, &usdc_id).balance(&buyer2),
         ticket_price
     );
-
-    // Check statuses
     assert_eq!(
         client
             .get_payment_status(&String::from_str(&env, "p1"))
@@ -1932,47 +1924,57 @@ fn test_bulk_refund_batching() {
     let env = Env::default();
     env.mock_all_auths();
 
-    let (client, _admin, usdc_id, _, _) = setup_test(&env);
+    let contract_id = env.register(TicketPaymentContract, ());
+    let client = TicketPaymentContractClient::new(&env, &contract_id);
+    let admin = Address::generate(&env);
+    let usdc_id = env
+        .register_stellar_asset_contract_v2(Address::generate(&env))
+        .address();
+    let platform_wallet = Address::generate(&env);
+    let registry_id = env.register(MockCancelledRegistry, ());
+    client.initialize(&admin, &usdc_id, &platform_wallet, &registry_id);
+
     let usdc_token = token::StellarAssetClient::new(&env, &usdc_id);
-
     let event_id = String::from_str(&env, "event_1");
-    let tier_id = String::from_str(&env, "tier_1");
-    let ticket_price = 1000_0000000i128; // matches MockEventRegistry tier price
+    let ticket_price = 1000_0000000i128;
 
-    // Process 3 payments
     let pids = [
         String::from_str(&env, "p0"),
         String::from_str(&env, "p1"),
         String::from_str(&env, "p2"),
     ];
 
-    for pid in pids.iter() {
-        let buyer = Address::generate(&env);
-        usdc_token.mint(&buyer, &ticket_price);
-        token::Client::new(&env, &usdc_id).approve(&buyer, &client.address, &ticket_price, &9999);
-        client.process_payment(
-            pid,
-            &event_id,
-            &tier_id,
-            &buyer,
-            &usdc_id,
-            &ticket_price,
-            &1,
-            &None,
-            &None,
-        );
-        client.confirm_payment(pid, &String::from_str(&env, "h"));
-    }
+    env.as_contract(&client.address, || {
+        for pid in pids.iter() {
+            let buyer = Address::generate(&env);
+            store_payment(
+                &env,
+                Payment {
+                    payment_id: pid.clone(),
+                    event_id: event_id.clone(),
+                    buyer_address: buyer,
+                    ticket_tier_id: String::from_str(&env, "tier_1"),
+                    amount: ticket_price,
+                    platform_fee: 50_0000000,
+                    organizer_amount: 950_0000000,
+                    status: PaymentStatus::Confirmed,
+                    transaction_hash: String::from_str(&env, "tx"),
+                    created_at: 0,
+                    confirmed_at: Some(1),
+                    refunded_amount: 0,
+                },
+            );
+            update_event_balance(&env, event_id.clone(), 950_0000000, 50_0000000);
+        }
+    });
+    usdc_token.mint(&client.address, &(ticket_price * 3));
 
-    // Refund batch 1 (size 2)
     let count1 = client.trigger_bulk_refund(&event_id, &2);
     assert_eq!(count1, 2);
 
-    // Refund batch 2 (size 2, only 1 left)
     let count2 = client.trigger_bulk_refund(&event_id, &2);
     assert_eq!(count2, 1);
 
-    // Refund batch 3 (none left)
     let count3 = client.trigger_bulk_refund(&event_id, &2);
     assert_eq!(count3, 0);
 }
@@ -3443,6 +3445,19 @@ fn test_trigger_bulk_refund_paused() {
     client.set_pause(&true);
     let res = client.try_trigger_bulk_refund(&String::from_str(&env, "event_1"), &10);
     assert_eq!(res, Err(Ok(TicketPaymentError::ContractPaused)));
+}
+
+#[test]
+fn test_bulk_refund_rejected_for_active_event() {
+    let env = Env::default();
+    env.mock_all_auths();
+
+    // setup_test uses MockEventRegistry which returns an Active event
+    let (client, _admin, _, _, _) = setup_test(&env);
+    let event_id = String::from_str(&env, "event_1");
+
+    let result = client.try_trigger_bulk_refund(&event_id, &10);
+    assert_eq!(result, Err(Ok(TicketPaymentError::EventNotCompleted)));
 }
 
 #[test]

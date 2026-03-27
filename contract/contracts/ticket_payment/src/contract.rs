@@ -1713,11 +1713,10 @@ impl TicketPaymentContract {
 
         event_info.organizer_address.require_auth();
 
-        // In a bulk refund, we assume the event is cancelled or inactive
         if event_info.is_active
-            && !matches!(event_info.status, event_registry::EventStatus::Cancelled)
+            || !matches!(event_info.status, event_registry::EventStatus::Cancelled)
         {
-            // Bulk refund is typically for cancelled events or post-event settlements.
+            return Err(TicketPaymentError::EventNotCompleted);
         }
 
         let start_index = get_bulk_refund_index(&env, event_id.clone());
