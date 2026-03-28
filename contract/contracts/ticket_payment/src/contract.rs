@@ -164,6 +164,7 @@ pub mod event_registry {
         pub goal_met: bool,
         pub custom_fee_bps: Option<u32>,
         pub banner_cid: Option<String>,
+        pub tags: Option<soroban_sdk::Vec<String>>,
     }
 }
 
@@ -704,6 +705,8 @@ impl TicketPaymentContract {
                 .checked_mul(20)
                 .and_then(|v| v.checked_div(100))
                 .ok_or(TicketPaymentError::ArithmeticError)?; // 20%
+                                                              // Cap: referral reward must never exceed the remaining platform fee.
+            let reward = core::cmp::min(reward, total_platform_fee);
             total_platform_fee = total_platform_fee
                 .checked_sub(reward)
                 .ok_or(TicketPaymentError::ArithmeticError)?;
@@ -1661,9 +1664,13 @@ impl TicketPaymentContract {
         let from = payment.buyer_address.clone();
         from.require_auth();
 
+        // Prevent self-transfer
         if from == to {
             return Err(TicketPaymentError::InvalidAddress);
         }
+
+        // Prevent transfer to the zero address or the contract itself
+        validate_recipient(&env, &to)?;
 
         // Validate resale price against the organizer's cap
         if let Some(price) = sale_price {
@@ -2254,6 +2261,23 @@ impl TicketPaymentContract {
 
 fn validate_address(env: &Env, address: &Address) -> Result<(), TicketPaymentError> {
     if address == &env.current_contract_address() {
+        return Err(TicketPaymentError::InvalidAddress);
+    }
+    Ok(())
+}
+
+/// Validates that a transfer recipient is neither the zero address nor the contract itself.
+fn validate_recipient(env: &Env, address: &Address) -> Result<(), TicketPaymentError> {
+    // Reject the contract's own address
+    if address == &env.current_contract_address() {
+        return Err(TicketPaymentError::InvalidAddress);
+    }
+    // Reject the Stellar zero/burn address
+    let zero = soroban_sdk::String::from_str(
+        env,
+        "GAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAJXFF",
+    );
+    if address.to_string() == zero {
         return Err(TicketPaymentError::InvalidAddress);
     }
     Ok(())
