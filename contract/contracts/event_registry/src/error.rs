@@ -71,6 +71,8 @@ pub enum EventRegistryError {
     InvalidTargetDeadline = 44,
     /// Admin has already approved this proposal
     AlreadyApproved = 45,
+    /// Payment address must be a standard account (G...), not a contract (C...)
+    PaymentAddressIsContract = 46,
 }
 
 impl core::fmt::Display for EventRegistryError {
@@ -211,6 +213,12 @@ impl core::fmt::Display for EventRegistryError {
             }
             EventRegistryError::AlreadyApproved => {
                 write!(f, "Admin has already approved this proposal")
+            }
+            EventRegistryError::PaymentAddressIsContract => {
+                write!(
+                    f,
+                    "Payment address must be a standard account, not a contract address"
+                )
             }
         }
     }

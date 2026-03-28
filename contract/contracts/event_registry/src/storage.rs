@@ -319,6 +319,9 @@ pub fn store_event(env: &Env, event_info: EventInfo) {
         env.storage()
             .persistent()
             .set(&DataKey::OrganizerEvent(organizer, event_id), &true);
+
+        // Increment global event counter
+        increment_global_event_count(env);
     }
 }
 
@@ -721,4 +724,46 @@ pub fn is_token_whitelisted(env: &Env, token: &Address) -> bool {
         .persistent()
         .get(&DataKey::TokenWhitelist(token.clone()))
         .unwrap_or(false)
+}
+
+// ── Global Counters ──────────────────────────────────────────────────────────
+
+/// Returns the total number of events ever registered on the platform.
+pub fn get_global_event_count(env: &Env) -> u32 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::GlobalEventCount)
+        .unwrap_or(0)
+}
+
+/// Increments the global event counter by one.
+pub fn increment_global_event_count(env: &Env) {
+    let current = get_global_event_count(env);
+    env.storage()
+        .persistent()
+        .set(&DataKey::GlobalEventCount, &(current + 1));
+}
+
+/// Returns the total number of tickets sold across all events.
+pub fn get_global_tickets_sold(env: &Env) -> i128 {
+    env.storage()
+        .persistent()
+        .get(&DataKey::GlobalTicketsSold)
+        .unwrap_or(0)
+}
+
+/// Adds `quantity` to the global tickets sold counter.
+pub fn add_to_global_tickets_sold(env: &Env, quantity: i128) {
+    let current = get_global_tickets_sold(env);
+    env.storage()
+        .persistent()
+        .set(&DataKey::GlobalTicketsSold, &(current.saturating_add(quantity)));
+}
+
+/// Subtracts `quantity` from the global tickets sold counter.
+pub fn subtract_from_global_tickets_sold(env: &Env, quantity: i128) {
+    let current = get_global_tickets_sold(env);
+    env.storage()
+        .persistent()
+        .set(&DataKey::GlobalTicketsSold, &(current.saturating_sub(quantity)));
 }

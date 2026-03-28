@@ -350,4 +350,8 @@ pub enum DataKey {
     StakersList,
     /// Mapping of token address to whitelist status (Persistent)
     TokenWhitelist(Address),
+    /// Global counter of all events ever registered on the platform
+    GlobalEventCount,
+    /// Global counter of all tickets sold across all events
+    GlobalTicketsSold,
 }

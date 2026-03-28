@@ -214,6 +214,11 @@ impl EventRegistry {
             return Err(EventRegistryError::OrganizerBlacklisted);
         }
 
+        // Validate payment_address is not a contract address
+        if is_contract_address(&env, &args.payment_address) {
+            return Err(EventRegistryError::PaymentAddressIsContract);
+        }
+
         validate_metadata_cid(&env, &args.metadata_cid)?;
 
         if storage::event_exists(&env, args.event_id.clone()) {
@@ -511,6 +516,16 @@ impl EventRegistry {
         Ok(event.current_supply)
     }
 
+    /// Returns the total number of events that have ever been registered on the platform.
+    pub fn get_managed_events_count(env: Env) -> u32 {
+        storage::get_global_event_count(&env)
+    }
+
+    /// Returns the total number of tickets sold across all events on the platform.
+    pub fn get_global_tickets_sold(env: Env) -> i128 {
+        storage::get_global_tickets_sold(&env)
+    }
+
     /// Checks if an event exists.
     pub fn event_exists(env: Env, event_id: String) -> bool {
         storage::event_exists(&env, event_id)
@@ -710,6 +725,7 @@ impl EventRegistry {
         }
 
         storage::update_event(&env, event_info);
+        storage::add_to_global_tickets_sold(&env, quantity_i128);
 
         env.events().publish(
             (AgoraEvent::InventoryIncremented,),
@@ -775,6 +791,7 @@ impl EventRegistry {
 
         let new_supply = event_info.current_supply;
         storage::update_event(&env, event_info);
+        storage::subtract_from_global_tickets_sold(&env, 1);
 
         env.events().publish(
             (crate::events::AgoraEvent::InventoryDecremented,),
@@ -1723,6 +1740,15 @@ fn validate_address(env: &Env, address: &Address) -> Result<(), EventRegistryErr
         return Err(EventRegistryError::InvalidAddress);
     }
     Ok(())
+}
+
+/// Returns true if the address is a contract address (starts with 'C') rather
+/// than a standard account address (starts with 'G').
+fn is_contract_address(env: &Env, address: &Address) -> bool {
+    let addr_str = address.to_string();
+    let mut bytes = soroban_sdk::Bytes::new(env);
+    bytes.append(&addr_str.into());
+    !bytes.is_empty() && bytes.get(0) == Some(b'C')
 }
 
 fn is_zero_address(env: &Env, address: &Address) -> bool {
