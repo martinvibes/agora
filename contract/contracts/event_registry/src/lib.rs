@@ -214,11 +214,6 @@ impl EventRegistry {
             return Err(EventRegistryError::OrganizerBlacklisted);
         }
 
-        // Validate payment_address is not a contract address
-        if is_contract_address(&env, &args.payment_address) {
-            return Err(EventRegistryError::PaymentAddressIsContract);
-        }
-
         validate_metadata_cid(&env, &args.metadata_cid)?;
 
         if storage::event_exists(&env, args.event_id.clone()) {
@@ -1740,15 +1735,6 @@ fn validate_address(env: &Env, address: &Address) -> Result<(), EventRegistryErr
         return Err(EventRegistryError::InvalidAddress);
     }
     Ok(())
-}
-
-/// Returns true if the address is a contract address (starts with 'C') rather
-/// than a standard account address (starts with 'G').
-fn is_contract_address(env: &Env, address: &Address) -> bool {
-    let addr_str = address.to_string();
-    let mut bytes = soroban_sdk::Bytes::new(env);
-    bytes.append(&addr_str.into());
-    !bytes.is_empty() && bytes.get(0) == Some(b'C')
 }
 
 fn is_zero_address(env: &Env, address: &Address) -> bool {

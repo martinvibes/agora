@@ -755,15 +755,17 @@ pub fn get_global_tickets_sold(env: &Env) -> i128 {
 /// Adds `quantity` to the global tickets sold counter.
 pub fn add_to_global_tickets_sold(env: &Env, quantity: i128) {
     let current = get_global_tickets_sold(env);
-    env.storage()
-        .persistent()
-        .set(&DataKey::GlobalTicketsSold, &(current.saturating_add(quantity)));
+    env.storage().persistent().set(
+        &DataKey::GlobalTicketsSold,
+        &(current.saturating_add(quantity)),
+    );
 }
 
 /// Subtracts `quantity` from the global tickets sold counter.
 pub fn subtract_from_global_tickets_sold(env: &Env, quantity: i128) {
     let current = get_global_tickets_sold(env);
-    env.storage()
-        .persistent()
-        .set(&DataKey::GlobalTicketsSold, &(current.saturating_sub(quantity)));
+    env.storage().persistent().set(
+        &DataKey::GlobalTicketsSold,
+        &(current.saturating_sub(quantity)),
+    );
 }
