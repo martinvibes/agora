@@ -285,7 +285,7 @@ function SectionHeader({
   title: string;
   tabs: { id: string; label: string }[];
   activeTab: string;
-  onTabChange: (tab: any) => void;
+  onTabChange: (tab: string) => void;
   layoutId: string;
 }) {
   return (
