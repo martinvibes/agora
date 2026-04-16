@@ -3,6 +3,7 @@
 import { Button } from "@/components/ui/button";
 import { AnimatePresence, motion } from "framer-motion";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 
@@ -226,21 +227,23 @@ export function Navbar() {
                 )}
 
                 <motion.div custom={4} variants={linkVariants} className="mt-4">
-                  <Button
-                    className="w-full justify-center"
-                    backgroundColor="bg-black"
-                    textColor="text-white"
-                    shadowColor="rgba(0,0,0,0.5)"
-                  >
-                    <span>Create Your Event</span>
-                    <Image
-                      src="/icons/arrow-up-right-01.svg"
-                      alt="Arrow"
-                      width={24}
-                      height={24}
-                      className="invert group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
-                    />
-                  </Button>
+                  <Link href={isLoggedIn ? "/create-event" : "/auth"} onClick={() => setIsOpen(false)}>
+                    <Button
+                      className="w-full justify-center"
+                      backgroundColor="bg-black"
+                      textColor="text-white"
+                      shadowColor="rgba(0,0,0,0.5)"
+                    >
+                      <span>Create Your Event</span>
+                      <Image
+                        src="/icons/arrow-up-right-01.svg"
+                        alt="Arrow"
+                        width={24}
+                        height={24}
+                        className="invert group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-transform"
+                      />
+                    </Button>
+                  </Link>
                 </motion.div>
               </div>
             </motion.div>

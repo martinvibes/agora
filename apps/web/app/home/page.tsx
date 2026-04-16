@@ -327,18 +327,20 @@ function SectionHeader<T extends string>({
           layoutId={layoutId}
         />
         {hasNotifications && (
-          <div className="w-13.75 h-13.75 rounded-full bg-[#FFEFD3] flex items-center justify-center  relative">
-            <div className="absolute -top-1 right-1 rounded-full size-4.75 bg-[#F90B0B] text-white flex items-center justify-center">
-              <p>1</p>
+          <Link href="#">
+            <div className="w-13.75 h-13.75 rounded-full bg-[#FFEFD3] flex items-center justify-center  relative">
+              <div className="absolute -top-1 right-1 rounded-full size-4.75 bg-[#F90B0B] text-white flex items-center justify-center">
+                <p>1</p>
+              </div>
+              <Image
+                src={BubbleChatIcon}
+                alt="chat"
+                width={24}
+                height={24}
+                className="object-contain w-6 h-6 mx-auto"
+              />
             </div>
-            <Image
-              src={BubbleChatIcon}
-              alt="chat"
-              width={24}
-              height={24}
-              className="object-contain w-6 h-6 mx-auto"
-            />
-          </div>
+          </Link>
         )}
       </div>
     </div>
@@ -572,7 +574,14 @@ function MyEventsContent({ activeTab }: { activeTab: MyEventsTab }) {
             />
           </div>
         </div>
-        <p className="text-xl font-medium leading-5.5">Nothing Here, Yet</p>
+        <div className="flex flex-col items-center gap-4">
+          <p className="text-xl font-medium leading-5.5 text-center">Nothing Here, Yet</p>
+          <Link href="/create-event">
+            <button className="bg-black text-white px-6 py-2 rounded-full font-medium shadow-[-4px_4px_0_rgba(0,0,0,0.2)] hover:shadow-none hover:translate-x-[-2px] hover:translate-y-[2px] transition-all">
+              Create Your First Event
+            </button>
+          </Link>
+        </div>
       </div>
     );
   }
