@@ -191,6 +191,14 @@
                                 },
                                 {
                                   "key": {
+                                    "symbol": "loyalty_multiplier"
+                                  },
+                                  "val": {
+                                    "u32": 1
+                                  }
+                                },
+                                {
+                                  "key": {
                                     "symbol": "name"
                                   },
                                   "val": {
@@ -244,6 +252,14 @@
                                   },
                                   "val": {
                                     "bool": true
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "loyalty_multiplier"
+                                  },
+                                  "val": {
+                                    "u32": 1
                                   }
                                 },
                                 {
@@ -686,6 +702,14 @@
                                 },
                                 {
                                   "key": {
+                                    "symbol": "loyalty_multiplier"
+                                  },
+                                  "val": {
+                                    "u32": 1
+                                  }
+                                },
+                                {
+                                  "key": {
                                     "symbol": "name"
                                   },
                                   "val": {
@@ -739,6 +763,14 @@
                                   },
                                   "val": {
                                     "bool": true
+                                  }
+                                },
+                                {
+                                  "key": {
+                                    "symbol": "loyalty_multiplier"
+                                  },
+                                  "val": {
+                                    "u32": 1
                                   }
                                 },
                                 {
