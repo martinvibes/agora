@@ -266,6 +266,8 @@ pub struct Proposal {
     pub approvals: Vec<Address>,
     /// Whether the proposal has been executed
     pub executed: bool,
+    /// Whether the proposal has been cancelled
+    pub cancelled: bool,
     /// Timestamp when the proposal was created
     pub created_at: u64,
     /// Timestamp when the proposal expires

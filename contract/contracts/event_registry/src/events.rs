@@ -59,6 +59,8 @@ pub enum AgoraEvent {
     FeedbackCidSet,
     /// An event's token whitelist has been updated (token added or removed).
     TokenWhitelistUpdated,
+    /// A governance proposal has been cancelled by the proposer.
+    ProposalCancelled,
 }
 
 /// Emitted when an event is permanently cancelled.
@@ -326,6 +328,20 @@ pub struct ProposalExecutedEvent {
     /// The admin address that triggered execution.
     pub executor: Address,
     /// The ledger timestamp when the proposal was executed.
+    pub timestamp: u64,
+}
+
+/// Emitted when a governance proposal is cancelled by the proposer.
+///
+/// Published with topic `(AgoraEvent::ProposalCancelled,)`.
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProposalCancelledEvent {
+    /// The unique identifier of the cancelled proposal.
+    pub proposal_id: u64,
+    /// The admin address that cancelled the proposal.
+    pub cancelled_by: Address,
+    /// The ledger timestamp when the cancellation occurred.
     pub timestamp: u64,
 }
 

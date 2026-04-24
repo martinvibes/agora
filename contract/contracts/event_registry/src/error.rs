@@ -76,6 +76,8 @@ pub enum EventRegistryError {
     EventNotEnded = 47,
     /// User has exceeded the maximum number of tickets allowed for this tier
     PerUserLimitExceeded = 48,
+    /// Proposal has already been cancelled
+    ProposalAlreadyCancelled = 49,
 }
 
 impl core::fmt::Display for EventRegistryError {
@@ -231,6 +233,9 @@ impl core::fmt::Display for EventRegistryError {
                     f,
                     "User has exceeded the maximum number of tickets allowed for this tier"
                 )
+            }
+            EventRegistryError::ProposalAlreadyCancelled => {
+                write!(f, "Proposal has already been cancelled")
             }
         }
     }

@@ -93,7 +93,7 @@ use crate::events::{
     InventoryIncrementedEvent, LoyaltyScoreUpdatedEvent, MetadataUpdatedEvent,
     OrganizerBlacklistedEvent, OrganizerRemovedFromBlacklistEvent, RegistryUpgradedEvent,
     ScannerAuthorizedEvent, StakerRewardsClaimedEvent, StakerRewardsDistributedEvent,
-    TokenWhitelistUpdatedEvent,
+    TokenWhitelistUpdatedEvent, ProposalCancelledEvent,
 };
 use crate::types::{
     BlacklistAuditEntry, EventInfo, EventReceipt, EventRegistrationArgs, EventStatus, GuestProfile,
@@ -1772,6 +1772,7 @@ impl EventRegistry {
             change,
             approvals,
             executed: false,
+            cancelled: false,
             created_at: env.ledger().timestamp(),
             expires_at: env.ledger().timestamp() + expiry,
         };
@@ -1902,6 +1903,11 @@ impl EventRegistry {
             return Err(EventRegistryError::ProposalExpired);
         }
 
+        // Check if cancelled
+        if proposal.cancelled {
+            return Err(EventRegistryError::ProposalAlreadyCancelled);
+        }
+
         // Check if already approved by this admin
         if proposal.approvals.contains(&approver) {
             return Err(EventRegistryError::AlreadyApproved);
@@ -1943,6 +1949,11 @@ impl EventRegistry {
         // Check if expired
         if env.ledger().timestamp() > proposal.expires_at {
             return Err(EventRegistryError::ProposalExpired);
+        }
+
+        // Check if cancelled
+        if proposal.cancelled {
+            return Err(EventRegistryError::ProposalAlreadyCancelled);
         }
 
         // Check if threshold is met
@@ -2001,6 +2012,45 @@ impl EventRegistry {
         proposal.executed = true;
         storage::set_proposal(&env, &proposal);
         storage::remove_active_proposal(&env, proposal_id);
+
+        Ok(())
+    }
+
+    /// Cancels a proposal. Only callable by the proposer.
+    pub fn cancel_proposal(
+        env: Env,
+        proposer: Address,
+        proposal_id: u64,
+    ) -> Result<(), EventRegistryError> {
+        proposer.require_auth();
+
+        let mut proposal =
+            storage::get_proposal(&env, proposal_id).ok_or(EventRegistryError::ProposalNotFound)?;
+
+        if proposal.proposer != proposer {
+            return Err(EventRegistryError::Unauthorized);
+        }
+
+        if proposal.executed {
+            return Err(EventRegistryError::ProposalAlreadyExecuted);
+        }
+
+        if proposal.cancelled {
+            return Err(EventRegistryError::ProposalAlreadyCancelled);
+        }
+
+        proposal.cancelled = true;
+        storage::set_proposal(&env, &proposal);
+        storage::remove_active_proposal(&env, proposal_id);
+
+        env.events().publish(
+            (AgoraEvent::ProposalCancelled,),
+            ProposalCancelledEvent {
+                proposal_id,
+                cancelled_by: proposer,
+                timestamp: env.ledger().timestamp(),
+            },
+        );
 
         Ok(())
     }
@@ -2251,3 +2301,6 @@ mod test_multisig;
 
 #[cfg(test)]
 mod test_free_ticket;
+
+#[cfg(test)]
+mod test_proposal_cancellation;
